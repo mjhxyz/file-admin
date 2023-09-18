@@ -52,6 +52,18 @@
                 <textarea name="remark" class="form-control" required></textarea>
             </div>
         </div>
+        <div id="upload-process-area" class="form-group">
+            <hr/>
+            <label class="col-sm-3 control-label"></label>
+            <div class="col-sm-8" style="display: flex; justify-content: space-between">
+                <div class="labels">
+                    <div><b>文件名称</b>: <span id="file_name"></span></div>
+                    <div><b>文件大小</b>: <span id="file_size">0B</span></div>
+                    <div><b>上传进度</b>: <span id="file_process">0</span>% / 100%</div>
+                </div>
+                <button id="btn-cancel" class="btn btn-warning" type="button">取消</button>
+            </div>
+        </div>
     </form>
 </div>
 <th:block th:include="include :: footer"/>
@@ -60,10 +72,32 @@
     var prefix = ctx + "system/file"
     var host = [[${fsHost}]]
     var port = [[${fsPort}]]
+    var xhr
+    var $processArea = $('#upload-process-area')
+    $processArea.hide()
+
+    function getfilesize(size) {//把字节转换成正常文件大小
+        if (!size) return "";
+        var num = 1024.00; //byte
+        if (size < num)
+            return size + "B";
+        if (size < Math.pow(num, 2))
+            return (size / num).toFixed(2) + "KB"; //kb
+        if (size < Math.pow(num, 3))
+            return (size / Math.pow(num, 2)).toFixed(2) + "MB"; //M
+        if (size < Math.pow(num, 4))
+            return (size / Math.pow(num, 3)).toFixed(2) + "G"; //G
+        return (size / Math.pow(num, 4)).toFixed(2) + "T"; //T
+    }
     $("#form-file-add").validate({
         focusCleanup: true
     });
     var isUploading = false;
+
+    $("#btn-cancel").click(() => {
+        if(!xhr) return
+        xhr.abort('取消')
+    })
 
     function submitHandler() {
         if(isUploading) {
@@ -84,13 +118,34 @@
             formData.append('path', '/f/');
             formData.append('code', '');
             formData.append('auth_token', '');
-            $.ajax({
+
+            var $file_name = $('#file_name');
+            var $file_size = $('#file_size');
+            var $file_process = $('#file_process');
+
+            $file_name.html(nameObj.val());
+            var fileObj = form[0][5].files[0];
+            $file_size.html(getfilesize(fileObj.size));
+            $file_process.html('0');
+            $processArea.show()
+
+            xhr = $.ajax({
                 url: `http://${host}:${port}/group1/upload`,
                 type: 'POST',
                 cache: false,
                 data: formData,
                 processData: false,
-                contentType: false
+                contentType: false,
+                xhr: function () {
+                    var xhr = $.ajaxSettings.xhr();
+                    if (xhr.upload) {
+                        xhr.upload.addEventListener('progress', function (e) {
+                            var percentage = parseInt(e.loaded / e.total * 100)
+                            $file_process.html(percentage)
+                        }, false);
+                    }
+                    return xhr;
+                }
             }).done(function (res) {
                 $.modal.msgSuccess('上传成功!');
                 var sizeObj = $("#form-file-add input[name='size']")
@@ -101,10 +156,17 @@
                 var url = new URL(data['url']);
                 var urlPrefix = url.origin + url.pathname;
                 urlObj.val(urlPrefix)
-                $.operate.save(prefix + "/add", form.serialize());
+                $.operate.save(prefix + "/add", form.serialize(), () => {
+                    $processArea.hide()
+                })
                 isUploading = false;
             }).fail(function (res) {
-                $.modal.msgError("上传失败");
+                if(res.statusText === '取消') {
+                    $.modal.msgError("取消上传");
+                }else{
+                    $.modal.msgError("上传失败");
+                }
+                $processArea.hide()
                 isUploading = false;
             });
         }else{
